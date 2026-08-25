@@ -6,3 +6,12 @@ data/*
 !data/.gitkeep
 !data/diabetes.csv
 .DS_Store
+
+# LaTeX build artifacts (report.pdf itself IS committed, as the assignment requires)
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/*.fls
+report/*.fdb_latexmk
+report/*.synctex.gz
