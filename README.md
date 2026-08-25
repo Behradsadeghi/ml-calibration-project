@@ -85,8 +85,11 @@ directly drive miscalibration: **class separability** and **class balance**.
 
 - **Breast Cancer** is an "easy", well-separated problem: we expect both models to already be close to
   well-calibrated, so it is a useful low-miscalibration reference point.
-- **Diabetes** is noisier and less separable, so we expect more miscalibration to start with, and more
-  room for the calibration methods to actually help.
+- **Diabetes** is noisier and less separable, so we *expected* more miscalibration to start with, and
+  more room for the calibration methods to help. This expectation was only partly borne out: the
+  uncalibrated models are indeed less sharp here, but neither calibration method improves log-loss over
+  the uncalibrated baseline on this dataset (see the multi-seed table below). Reporting the expectation
+  and where it failed is part of the analysis, not a defect in it.
 
 Both are small-to-medium scale (as required) and binary classification.
 
@@ -186,6 +189,45 @@ not survive multi-seed evidence and has been corrected there:
 safer default for both datasets studied here. Isotonic regression's extra flexibility is a genuine
 theoretical advantage (see its docstring), but realizing it reliably needs more calibration data than
 either dataset's split provides.
+
+## Did calibration actually help?
+
+The headline finding above is about isotonic regression failing. But the prior question — *did either
+calibration method improve on the uncalibrated baseline at all?* — has a more nuanced answer, and it is
+worth stating plainly. Using the 10-seed means, comparing Platt scaling against the uncalibrated model:
+
+| dataset | model | metric | Uncalibrated | Platt | verdict |
+|---|---|---|---|---|---|
+| breast_cancer | LogisticRegression | log-loss | 0.0846 | 0.0864 | worse |
+| breast_cancer | RandomForest | log-loss | 0.1563 | **0.1235** | **better** |
+| diabetes | LogisticRegression | log-loss | 0.4868 | 0.4930 | worse |
+| diabetes | RandomForest | log-loss | 0.4810 | 0.4896 | worse |
+| breast_cancer | LogisticRegression | ECE | 0.0319 | **0.0291** | **better** |
+| breast_cancer | RandomForest | ECE | 0.0545 | **0.0476** | **better** |
+| diabetes | LogisticRegression | ECE | 0.0850 | **0.0805** | **better** |
+| diabetes | RandomForest | ECE | 0.0724 | 0.0850 | worse |
+
+So Platt scaling improves ECE in 3 of 4 cases, Brier score in 2 of 4, and log-loss in only 1 of 4. The
+single clear win — Random Forest on Breast Cancer — is also the case with the most miscalibration to
+fix in the first place (uncalibrated ECE 0.0545, the highest of the four).
+
+**Why so little to fix.** This is the expected result for these two model classes, not a failure of the
+implementation:
+
+- Logistic Regression is fit by maximizing log-likelihood, i.e. it directly optimizes (a regularized
+  version of) the very loss used to evaluate calibration. On well-specified problems it is already
+  close to calibrated, so post-hoc correction has almost nothing to correct and mostly adds estimation
+  noise from the ~110-150 point calibration set.
+- Random Forest's vote-averaging does push probabilities toward the centre, which is a real, correctable
+  distortion — and Platt scaling does correct it, visibly, on Breast Cancer.
+
+**A limitation worth acknowledging.** Niculescu-Mizil & Caruana's most dramatic calibration gains come
+from boosted trees, SVMs, and Naive Bayes — model families whose scores are *systematically* distorted
+(boosting pushes scores away from 0/1 in a characteristic sigmoidal way; SVM margins are not
+probabilities at all). The assignment specifies Logistic Regression and Random Forest, which are two of
+the better-calibrated families in that paper's own comparison, so this study is structurally unlikely to
+reproduce the paper's largest effects. The results here are consistent with the paper — they sit at the
+"already nearly calibrated" end of its spectrum — rather than contradicting it.
 
 ## Extra (bonus) diagnostic: Expected Calibration Error (ECE)
 
