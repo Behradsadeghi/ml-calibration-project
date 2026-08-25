@@ -229,6 +229,48 @@ the better-calibrated families in that paper's own comparison, so this study is 
 reproduce the paper's largest effects. The results here are consistent with the paper — they sit at the
 "already nearly calibrated" end of its spectrum — rather than contradicting it.
 
+## Which model is more miscalibrated, and in which direction?
+
+The assignment asks for a discussion of miscalibration, which means answering not just *how much* but
+*which way*. `src/metrics.miscalibration_tilt` measures the direction: it is the weighted mean gap
+(predicted − observed) over the lower half of the probability range minus the same over the upper half.
+
+- **Positive tilt = under-confident**: predictions squeezed toward 0.5, reliability curve flatter than
+  the diagonal. This is the vote-averaging effect Niculescu-Mizil & Caruana describe for tree ensembles.
+- **Negative tilt = over-confident**: predictions pushed away from 0.5, curve steeper than the diagonal.
+
+A plain average of (predicted − observed) across all bins *cannot* answer this question, because the
+positive gaps at low probabilities and the negative gaps at high probabilities cancel: on synthetic data
+with a known direction, that statistic reads ~0.001 for a strongly under-confident model and ~0.001 for
+a strongly over-confident one. The tilt statistic separates them cleanly. `miscalibration_tilt` was
+validated against exactly such synthetic cases, and `reliability_bins` was cross-checked against
+`sklearn.calibration.calibration_curve` (agreement to ~1e-16).
+
+Uncalibrated models, tilt across 10 random splits (from `results/metrics/multiseed_summary.csv`):
+
+| dataset | model | tilt (mean ± std) | range over seeds | reading |
+|---|---|---|---|---|
+| breast_cancer | LogisticRegression | +0.032 ± 0.019 | −0.007 to +0.056 | under-confident |
+| breast_cancer | RandomForest | **+0.059 ± 0.050** | −0.027 to +0.148 | **under-confident, ~2x more than LR** |
+| diabetes | LogisticRegression | −0.060 ± 0.115 | −0.229 to +0.125 | no stable direction |
+| diabetes | RandomForest | +0.031 ± 0.079 | −0.085 to +0.163 | no stable direction |
+
+**What this supports.** On Breast Cancer the paper's prediction holds: both models are under-confident,
+and Random Forest is roughly twice as under-confident as Logistic Regression — consistent with the
+vote-averaging mechanism, which applies to the forest and not to the linear model. This is also the one
+case where Platt scaling clearly helps (log-loss 0.156 → 0.124), which is what one would expect if
+there is a genuine, systematic, sigmoid-shaped distortion for it to undo.
+
+**What this does not support.** On Diabetes the sign flips from split to split for both models, so no
+claim about direction can honestly be made there. Reporting a direction from the single `SEED=42` split
+would have produced a confident-sounding statement that ten splits do not back up.
+
+**Where the miscalibration actually sits.** Per-bin, the largest gaps on Breast Cancer are in the middle
+of the probability range (bins around 0.2–0.7, gaps up to ~0.2–0.3), while the two outermost bins are
+close to calibrated (gaps ~0.003–0.016). Those outermost bins hold 77–89% of the test mass on that
+dataset, which is why the overall ECE stays small (~0.03–0.05) despite visible curvature in the middle:
+the model is miscalibrated mostly where it rarely predicts.
+
 ## Extra (bonus) diagnostic: Expected Calibration Error (ECE)
 
 Beyond the three required metrics (accuracy, log-loss, Brier score), `src/metrics.py` also computes ECE

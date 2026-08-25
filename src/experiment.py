@@ -60,8 +60,17 @@ def train_base_models(X_train: np.ndarray, y_train: np.ndarray, seed: int = SEED
     Niculescu-Mizil & Caruana (2005) show this averaging systematically
     pushes predicted probabilities toward 0.5 -- individual trees are
     overconfident, but averaging many of them washes out the extremes, so
-    the ensemble ends up *under-confident* near 0 and 1. n_estimators=300
-    gives a stable ensemble while keeping runtime small.
+    the ensemble ends up *under-confident*. n_estimators=300 gives a stable
+    ensemble while keeping runtime small.
+
+    How well this holds here (measured, not assumed): see the "Which model
+    is more miscalibrated, and in which direction?" section of the README.
+    Briefly -- on Breast Cancer the prediction is borne out, and Random
+    Forest is roughly twice as under-confident as Logistic Regression; on
+    Diabetes the direction is not stable across random splits, so no claim
+    is made there. Note also that the under-confidence shows up in the
+    *middle* of the probability range, not at the extremes: the outermost
+    bins, which hold most of the test mass, are close to calibrated.
     """
     logreg = LogisticRegression(max_iter=2000, random_state=seed)
     logreg.fit(X_train, y_train)
@@ -243,7 +252,7 @@ def run_multi_seed(n_seeds: int = 10, base_seed: int = SEED, n_bins: int = 10):
     print(f"[multiseed] saved raw per-seed results -> {raw_path.relative_to(REPO_ROOT)}")
 
     summary = (
-        raw.groupby(["dataset", "model", "method"])[["accuracy", "log_loss", "brier_score", "ece"]]
+        raw.groupby(["dataset", "model", "method"])[["accuracy", "log_loss", "brier_score", "ece", "tilt"]]
         .agg(["mean", "std"])
     )
     summary.columns = [f"{metric}_{stat}" for metric, stat in summary.columns]

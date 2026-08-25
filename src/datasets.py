@@ -24,9 +24,14 @@ are.
      model classes), and more imbalanced (~65% negative / 35% positive).
    - Expectation: a harder, noisier problem should produce *more*
      miscalibration, especially for Random Forest (whose probability
-     averaging tends to push predictions toward 0.5, i.e. underconfidence
-     on both tails), giving us a genuine before/after story to compare
-     against the "easy" dataset above.
+     averaging tends to push predictions toward 0.5, i.e. underconfidence).
+     This expectation was NOT borne out: measured across 10 random splits,
+     the direction of miscalibration on this dataset flips sign from split
+     to split for both models, so no stable claim can be made here -- unlike
+     on the breast-cancer dataset, where both models are consistently
+     under-confident. See the README's "Which model is more miscalibrated"
+     section for the numbers. The datasets still contrast usefully, just not
+     in the direction originally expected.
 
 Both are small-to-medium (as required), binary classification, no missing
 values after the light cleaning described below, and downloaded through

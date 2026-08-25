@@ -140,6 +140,50 @@ def expected_calibration_error(y_true: np.ndarray, y_prob: np.ndarray, n_bins: i
     return float(np.sum(weights * gaps))
 
 
+def miscalibration_tilt(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
+    """
+    Signed measure of the *direction* of miscalibration.
+
+        tilt = (weighted mean of (pred - obs) over the lower half of the
+                probability range)
+             - (weighted mean of (pred - obs) over the upper half)
+
+    Positive  => UNDER-confident: the model over-states probabilities for
+                 examples it thinks are unlikely and under-states them for
+                 examples it thinks are likely, i.e. its predictions are
+                 squeezed toward 0.5 (the reliability curve is flatter than
+                 the diagonal). This is the pattern Niculescu-Mizil &
+                 Caruana attribute to vote-averaging in tree ensembles.
+    Negative  => OVER-confident: predictions are pushed away from 0.5, the
+                 reliability curve is steeper than the diagonal.
+
+    Why not just average (pred - obs) over all bins?
+    --------------------------------------------------
+    Because that quantity is near zero for *both* failure modes: the
+    positive gaps in the low bins and the negative gaps in the high bins
+    cancel out. Verified on synthetic data where the true direction is known
+    by construction, a plain weighted-average gap reads ~0.001 for a
+    strongly under-confident model and ~0.001 for a strongly over-confident
+    one, while this tilt statistic cleanly separates them. Direction of
+    miscalibration is about the *slope* of the reliability curve relative to
+    the diagonal, not its average offset.
+
+    Caveat: like every reliability-diagram statistic, this is noisy on small
+    test sets. Report it across several random splits (see
+    `src.experiment.run_multi_seed`) rather than from a single split.
+    """
+    bin_mean_pred, bin_frac_pos, bin_counts, _ = reliability_bins(y_true, y_prob, n_bins)
+    idx = np.arange(n_bins)
+    lower = (idx < n_bins // 2) & (bin_counts > 0)
+    upper = (idx >= n_bins // 2) & (bin_counts > 0)
+    if bin_counts[lower].sum() == 0 or bin_counts[upper].sum() == 0:
+        return float("nan")
+    gap = bin_mean_pred - bin_frac_pos
+    lower_gap = np.average(gap[lower], weights=bin_counts[lower])
+    upper_gap = np.average(gap[upper], weights=bin_counts[upper])
+    return float(lower_gap - upper_gap)
+
+
 def evaluate_probs(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10, threshold: float = 0.5) -> dict:
     """Convenience wrapper: compute all metrics at once and return a dict."""
     return {
@@ -147,4 +191,5 @@ def evaluate_probs(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10, thr
         "log_loss": log_loss(y_true, y_prob),
         "brier_score": brier_score(y_true, y_prob),
         "ece": expected_calibration_error(y_true, y_prob, n_bins=n_bins),
+        "tilt": miscalibration_tilt(y_true, y_prob, n_bins=n_bins),
     }
