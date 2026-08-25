@@ -209,29 +209,68 @@ class IsotonicRegressionPAVA:
     at a new score, we linearly interpolate between these representative
     points (and clip to the min/max fitted value outside the observed
     range). Linear interpolation turns the raw PAVA step function into a
-    smooth, still-monotonic curve, which is the standard way isotonic
-    regression is used as a continuous calibration map in practice (it is
-    also what scikit-learn's IsotonicRegression does internally).
+    continuous, still-monotonic curve, which is the standard way isotonic
+    regression is used as a calibration map in practice: a hard step
+    function assigns the same probability to every score inside a block,
+    which is visually and numerically jarring at the block boundaries.
+
+    A deliberate deviation, stated explicitly
+    ------------------------------------------
+    Note that the exactness result above applies to the *blocks* produced
+    by PAVA, not to what `predict` returns. Because we interpolate between
+    block *means*, the value predicted at a training point inside a block
+    is generally not equal to that block's fitted constant, so `predict`
+    does not reproduce the exact least-squares isotonic solution on the
+    calibration set itself (measured as residual sum of squares, it is
+    slightly worse than the exact step function, by construction).
+
+    This differs from scikit-learn's `IsotonicRegression`, which
+    interpolates between the score values at the *block boundaries* and
+    therefore does reproduce the exact fitted values at the training
+    points. Both are monotonic, and the difference is small in practice,
+    but the block-mean variant used here is a smoothing choice, not the
+    argmin of the constrained least-squares problem. It is kept because a
+    block's mean score is the more natural representative of where that
+    block's probability estimate actually applies.
 
     Known failure mode: overfitting on small / well-separated calibration
     sets
     ----------------------------------------------------------------------
     If the calibration set is small and the base classifier already ranks
-    the two classes almost perfectly, PAVA finds few or *no* rank
-    violations to pool, so it ends up simply memorizing the calibration
-    labels as a hard 0/1 step function (fitted values of exactly 0.0 or
-    1.0). Unlike Platt scaling -- whose Bayesian-smoothed targets
-    mathematically prevent the sigmoid from ever reaching exactly 0 or 1 --
-    nothing here stops isotonic regression from doing so. This is not a bug:
-    it is the exact least-squares isotonic solution. But it means a single
-    test point that lands in one of these degenerate blocks and turns out
-    to be misclassified contributes an (unclipped) infinite log-loss, so in
-    practice log-loss is clipped at some eps (see `src/metrics.py`) and the
-    contribution is merely huge rather than infinite. Brier score and
-    accuracy are far less sensitive to this because they do not blow up
-    near 0/1. Expect this effect to show up most on the "easy" (well
-    separated) dataset with a small calibration set, and much less on a
-    noisier dataset or a less confident base model (e.g. Random Forest).
+    the two classes perfectly, PAVA finds *no* rank violations to pool, so
+    every calibration point remains its own block and the fitted value of
+    each block is simply that point's label -- i.e. every block value is
+    exactly 0.0 or 1.0. Unlike Platt scaling -- whose Bayesian-smoothed
+    targets mathematically prevent the sigmoid from ever reaching exactly 0
+    or 1 -- nothing here stops isotonic regression from doing so. This is
+    not a bug: it is the exact least-squares isotonic solution when the
+    monotonicity constraint is never active.
+
+    Two clarifications that matter when discussing this result:
+
+    (a) The *predictions* are still piecewise linear, not a hard step: we
+        interpolate between block means (see above). What makes the test
+        predictions collapse onto exactly 0 and 1 anyway is that all the
+        block values are themselves 0 or 1, so interpolating between them
+        only produces an intermediate value for the narrow score range
+        that happens to fall between an opposite-labelled pair, and
+        `np.interp` clamps flat to 0 or 1 outside the observed range. On
+        the breast-cancer / Logistic Regression run this leaves 113 of 114
+        test predictions at exactly 0 or 1.
+
+    (b) The size of the resulting log-loss is largely an artifact of the
+        clipping constant. A test point that lands on a degenerate block
+        and is misclassified would contribute an infinite log-loss, so in
+        practice log-loss is clipped at some eps (see `src/metrics.py`).
+        With only two such confidently-wrong points, test log-loss on that
+        run is 0.62 at eps=1e-15 but 0.14 at eps=1e-3 -- the *direction*
+        of the effect is real and reproducible across seeds, but any
+        specific number should be reported alongside the eps used.
+
+    Brier score and accuracy are far less sensitive to this because they do
+    not blow up near 0/1. Expect this effect to show up most on the "easy"
+    (well separated) dataset with a small calibration set, and much less on
+    a noisier dataset or a less confident base model (e.g. Random Forest).
     """
 
     def __init__(self):

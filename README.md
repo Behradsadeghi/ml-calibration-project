@@ -42,8 +42,13 @@ pip install -r requirements.txt
 python -m src.experiment
 ```
 
-The diabetes dataset is fetched once via `sklearn.datasets.fetch_openml` and cached locally
-(`~/scikit_learn_data` by default) — after the first run, everything is fully offline.
+The diabetes dataset is fetched via `sklearn.datasets.fetch_openml` and cached locally
+(`~/scikit_learn_data` by default), so **the first run requires an internet connection**; subsequent
+runs are fully offline.
+
+Note also that `requirements.txt` pins exact library versions. This matters: Random Forest results shift
+slightly across scikit-learn versions even with a fixed `random_state`, so reproducing the exact numbers
+in `results/` requires the pinned versions.
 
 To explore interactively / regenerate the notebook outputs:
 
@@ -104,13 +109,30 @@ Both are small-to-medium scale (as required) and binary classification.
 
 On the Breast Cancer dataset, the Logistic Regression calibration set (114 points) turns out to be
 **perfectly rank-separated** by the model's raw scores — PAVA finds zero monotonicity violations to
-pool, so isotonic regression degenerates into memorizing the calibration labels as a hard 0/1 step
-function. A misclassified test point then gets predicted probability exactly 0 or 1, which is
-catastrophic for log-loss (eps-clipped to a large finite penalty) even though it barely moves Brier
-score or accuracy. Platt scaling's Bayesian-smoothed regression targets make it structurally immune to
-this failure mode (see the extended docstring in `src/calibration.py`). This is a genuine, reproducible
-result — not a bug — and a good concrete example of the "isotonic regression needs more calibration
-data than Platt scaling" tradeoff discussed in Niculescu-Mizil & Caruana (2005).
+pool, so every calibration point stays in its own block and every fitted block value is exactly 0 or 1.
+Isotonic regression has effectively memorized the calibration labels.
+
+Predictions are still piecewise-linear (we interpolate between block means), but since all block values
+are 0 or 1, and `np.interp` clamps flat outside the observed score range, **113 of the 114 test
+predictions come out at exactly 0 or 1**. Two of those are misclassified, and that alone drives test
+log-loss from 0.086 (uncalibrated) to 0.620 — while Brier score (0.0239 → 0.0230) and accuracy
+(0.965 → 0.974) barely move at all.
+
+Two caveats to state honestly when discussing this:
+
+- **The magnitude depends on the clipping constant.** Log-loss is eps-clipped in `src/metrics.py`
+  (otherwise it would be infinite). At `eps=1e-15` that run gives 0.620; at `eps=1e-3` the same
+  predictions give 0.136. The *direction* is robust, the specific number is not — always report the eps.
+- **The effect is reproducible, but high-variance.** Across 7 random splits of the same dataset,
+  isotonic log-loss averages 0.57 ± 0.58 for Logistic Regression and 0.55 ± 0.52 for Random Forest,
+  versus 0.11 ± 0.03 and 0.12 ± 0.04 for Platt. Isotonic is consistently and substantially worse here,
+  but the standard deviation exceeds the mean of the other methods, so single-split numbers should not
+  be over-interpreted.
+
+Platt scaling's Bayesian-smoothed regression targets make it structurally immune to this failure mode
+(see the extended docstring in `src/calibration.py`). This is a genuine result — not a bug — and a good
+concrete example of the "isotonic regression needs more calibration data than Platt scaling" tradeoff
+discussed in Niculescu-Mizil & Caruana (2005).
 
 ## Extra (bonus) diagnostic: Expected Calibration Error (ECE)
 
