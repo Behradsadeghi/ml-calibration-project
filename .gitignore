@@ -4,4 +4,5 @@ __pycache__/
 .ipynb_checkpoints/
 data/*
 !data/.gitkeep
+!data/diabetes.csv
 .DS_Store

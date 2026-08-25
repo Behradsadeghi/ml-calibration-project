@@ -27,6 +27,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
@@ -34,7 +35,7 @@ from sklearn.preprocessing import StandardScaler
 from .datasets import load_breast_cancer_dataset, load_diabetes_dataset, split_train_calib_test
 from .calibration import PlattScaling, IsotonicRegressionPAVA
 from .metrics import evaluate_probs
-from .plotting import plot_reliability_comparison
+from .plotting import plot_reliability_comparison, plot_multiseed_stability
 
 SEED = 42
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -71,7 +72,26 @@ def train_base_models(X_train: np.ndarray, y_train: np.ndarray, seed: int = SEED
     return {"LogisticRegression": logreg, "RandomForest": rf}
 
 
-def run_dataset_experiment(load_fn, n_bins: int = 10, seed: int = SEED) -> pd.DataFrame:
+def run_dataset_experiment(
+    load_fn,
+    n_bins: int = 10,
+    seed: int = SEED,
+    save_plots: bool = True,
+    save_csv: bool = True,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Run the full train/calibrate/evaluate pipeline once, for one dataset,
+    for one particular train/calibration/test split (determined by `seed`).
+
+    `save_plots` / `save_csv` / `verbose` default to True so the single-seed
+    call from `main()` behaves exactly as before. `run_multi_seed` below
+    calls this with all three set to False: with 10 seeds x 2 datasets x 2
+    models, generating and saving a reliability-diagram figure for every
+    single run would produce 40 extra plots (and leave 40 open matplotlib
+    figures) we do not want -- only the seed-42 headline run's plots should
+    land in results/plots/.
+    """
     X, y, name, description = load_fn()
     splits = split_train_calib_test(X, y, seed=seed)
     X_train, y_train = splits["X_train"], splits["y_train"]
@@ -89,12 +109,13 @@ def run_dataset_experiment(load_fn, n_bins: int = 10, seed: int = SEED) -> pd.Da
     X_calib = scaler.transform(X_calib)
     X_test = scaler.transform(X_test)
 
-    print(f"[{name}] {description}")
-    print(
-        f"[{name}] train={len(y_train)} calib={len(y_calib)} test={len(y_test)} "
-        f"pos_rate(train/calib/test)="
-        f"{y_train.mean():.3f}/{y_calib.mean():.3f}/{y_test.mean():.3f}"
-    )
+    if verbose:
+        print(f"[{name}] {description}")
+        print(
+            f"[{name}] seed={seed} train={len(y_train)} calib={len(y_calib)} test={len(y_test)} "
+            f"pos_rate(train/calib/test)="
+            f"{y_train.mean():.3f}/{y_calib.mean():.3f}/{y_test.mean():.3f}"
+        )
 
     models = train_base_models(X_train, y_train, seed=seed)
 
@@ -123,17 +144,22 @@ def run_dataset_experiment(load_fn, n_bins: int = 10, seed: int = SEED) -> pd.Da
             m = evaluate_probs(y_test, p, n_bins=n_bins)
             rows.append({"dataset": name, "model": model_name, "method": method_name, **m})
 
-        plot_path = PLOTS_DIR / f"{name}_{model_name}_reliability.png"
-        plot_reliability_comparison(
-            y_test, prob_variants, n_bins=n_bins,
-            title=f"{name} — {model_name} (test set)", save_path=plot_path,
-        )
-        print(f"[{name}] saved plot -> {plot_path.relative_to(REPO_ROOT)}")
+        if save_plots:
+            plot_path = PLOTS_DIR / f"{name}_{model_name}_reliability.png"
+            plot_reliability_comparison(
+                y_test, prob_variants, n_bins=n_bins,
+                title=f"{name} — {model_name} (test set)", save_path=plot_path,
+            )
+            plt.close("all")
+            if verbose:
+                print(f"[{name}] saved plot -> {plot_path.relative_to(REPO_ROOT)}")
 
     df = pd.DataFrame(rows)
-    csv_path = METRICS_DIR / f"{name}_metrics.csv"
-    df.to_csv(csv_path, index=False)
-    print(f"[{name}] saved metrics -> {csv_path.relative_to(REPO_ROOT)}")
+    if save_csv:
+        csv_path = METRICS_DIR / f"{name}_metrics.csv"
+        df.to_csv(csv_path, index=False)
+        if verbose:
+            print(f"[{name}] saved metrics -> {csv_path.relative_to(REPO_ROOT)}")
     return df
 
 
@@ -162,7 +188,84 @@ def build_cross_dataset_summary(df_all: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def main():
+DATASET_LOADERS = {
+    "breast_cancer": load_breast_cancer_dataset,
+    "diabetes": load_diabetes_dataset,
+}
+
+
+def run_multi_seed(n_seeds: int = 10, base_seed: int = SEED, n_bins: int = 10):
+    """
+    Repeat the full train/calibrate/evaluate pipeline across `n_seeds`
+    different random train/calibration/test splits (seeds
+    base_seed, base_seed+1, ..., base_seed+n_seeds-1), for both datasets,
+    and aggregate test metrics as mean +/- std per (dataset, model, method).
+
+    Why this matters
+    ------------------
+    Every number reported by `main()` (and every reliability diagram in
+    results/plots/) comes from a *single* random 60/20/20 split
+    (SEED=42). With calibration/test sets of only ~100-150 points, sampling
+    noise alone can move log-loss or Brier score by a non-trivial amount --
+    the isotonic-regression 0/1-collapse discussed in
+    `src/calibration.py` is itself a split-dependent effect. Reporting mean
+    +/- std across many seeds is the minimum needed to tell whether an
+    apparent difference between two calibration methods is a real effect or
+    noise from one particular split.
+
+    This is purely additive: it does not touch the single-seed outputs
+    (results/metrics/{dataset}_metrics.csv, results/metrics/all_results.csv,
+    results/plots/{dataset}_{model}_reliability.png). It saves:
+      - results/metrics/multiseed_raw.csv      (one row per seed x dataset
+                                                  x model x method)
+      - results/metrics/multiseed_summary.csv  (aggregated mean/std)
+      - results/plots/multiseed_stability.png  (mean +/- std bar chart)
+    """
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+    METRICS_DIR.mkdir(parents=True, exist_ok=True)
+
+    seeds = [base_seed + i for i in range(n_seeds)]
+    print(f"[multiseed] running {n_seeds} seeds ({seeds[0]}..{seeds[-1]}) x {len(DATASET_LOADERS)} datasets")
+
+    raw_frames = []
+    for seed in seeds:
+        for dataset_name, load_fn in DATASET_LOADERS.items():
+            df = run_dataset_experiment(
+                load_fn, n_bins=n_bins, seed=seed,
+                save_plots=False, save_csv=False, verbose=False,
+            )
+            df["seed"] = seed
+            raw_frames.append(df)
+
+    raw = pd.concat(raw_frames, ignore_index=True)
+    raw_path = METRICS_DIR / "multiseed_raw.csv"
+    raw.to_csv(raw_path, index=False)
+    print(f"[multiseed] saved raw per-seed results -> {raw_path.relative_to(REPO_ROOT)}")
+
+    summary = (
+        raw.groupby(["dataset", "model", "method"])[["accuracy", "log_loss", "brier_score", "ece"]]
+        .agg(["mean", "std"])
+    )
+    summary.columns = [f"{metric}_{stat}" for metric, stat in summary.columns]
+    summary = summary.reset_index()
+    summary.insert(3, "n_seeds", n_seeds)
+    summary_path = METRICS_DIR / "multiseed_summary.csv"
+    summary.to_csv(summary_path, index=False)
+    print(f"[multiseed] saved aggregated summary -> {summary_path.relative_to(REPO_ROOT)}")
+
+    plot_path = PLOTS_DIR / "multiseed_stability.png"
+    plot_multiseed_stability(summary, save_path=plot_path)
+    plt.close("all")
+    print(f"[multiseed] saved plot -> {plot_path.relative_to(REPO_ROOT)}")
+
+    pd.set_option("display.width", 120)
+    print("\n=== Multi-seed summary: mean ± std across seeds ===")
+    print(summary.round(4).to_string(index=False))
+
+    return raw, summary
+
+
+def main(run_multiseed: bool = False, n_seeds: int = 10):
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -184,8 +287,25 @@ def main():
             values=["log_loss", "brier_score", "ece", "accuracy"],
         ).round(4)
     )
+
+    if run_multiseed:
+        run_multi_seed(n_seeds=n_seeds)
+
     return df_all, summary
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run the calibration-study pipeline.")
+    parser.add_argument(
+        "--multiseed", action="store_true",
+        help="Also run the multi-seed robustness check (results/metrics/multiseed_*.csv, "
+             "results/plots/multiseed_stability.png). The single-seed run always happens first.",
+    )
+    parser.add_argument(
+        "--n-seeds", type=int, default=10,
+        help="Number of seeds for --multiseed (default: 10).",
+    )
+    args = parser.parse_args()
+    main(run_multiseed=args.multiseed, n_seeds=args.n_seeds)

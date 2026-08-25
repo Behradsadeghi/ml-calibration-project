@@ -91,3 +91,56 @@ def plot_reliability_comparison(
     if save_path:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
     return fig
+
+
+_METHOD_ORDER = ["Uncalibrated", "Platt", "Isotonic"]
+_METHOD_COLORS = {"Uncalibrated": "#1f77b4", "Platt": "#ff7f0e", "Isotonic": "#2ca02c"}
+
+
+def plot_multiseed_stability(summary_df, metrics=("log_loss", "brier_score", "ece"), save_path=None):
+    """
+    Grid of bar charts (rows = metrics, columns = dataset x model
+    combinations) showing, per method, the mean test-set metric across
+    many random train/calibration/test splits with a +/- 1 std error bar.
+
+    `summary_df` is the aggregated output of
+    `src.experiment.run_multi_seed` (one row per dataset x model x method,
+    with `{metric}_mean` / `{metric}_std` columns).
+
+    Why this plot matters
+    -----------------------
+    A single reliability diagram or a single metrics table (as produced by
+    `src.experiment.main`) is one sample from "what would happen with a
+    different random split." A tall bar is a real effect; a tall bar with
+    an error bar comparable to its own height is mostly noise from one
+    particular split, and should not be over-interpreted (e.g. compared
+    method-vs-method) without seeing the spread shown here.
+    """
+    combos = list(
+        summary_df[["dataset", "model"]].drop_duplicates().itertuples(index=False, name=None)
+    )
+    n_rows, n_cols = len(metrics), len(combos)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3.6 * n_cols, 3.0 * n_rows), squeeze=False)
+
+    for i, metric in enumerate(metrics):
+        for j, (dataset, model) in enumerate(combos):
+            ax = axes[i][j]
+            sub = summary_df[(summary_df.dataset == dataset) & (summary_df.model == model)]
+            sub = sub.set_index("method").reindex(_METHOD_ORDER)
+            means = sub[f"{metric}_mean"].to_numpy(dtype=float)
+            stds = sub[f"{metric}_std"].to_numpy(dtype=float)
+            bar_colors = [_METHOD_COLORS[m] for m in _METHOD_ORDER]
+            ax.bar(_METHOD_ORDER, means, yerr=stds, capsize=4, color=bar_colors)
+            if i == 0:
+                ax.set_title(f"{dataset}\n{model}", fontsize=10)
+            if j == 0:
+                ax.set_ylabel(metric)
+            ax.tick_params(axis="x", rotation=30)
+            ax.grid(alpha=0.3, axis="y")
+
+    n_seeds = int(summary_df["n_seeds"].iloc[0]) if "n_seeds" in summary_df else "?"
+    fig.suptitle(f"Multi-seed stability across {n_seeds} random splits: mean ± std (test-set metrics)")
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    return fig

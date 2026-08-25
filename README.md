@@ -9,21 +9,25 @@ real-world datasets, using from-scratch implementations of Platt scaling and iso
 ## Repository structure
 
 ```
-data/                 # dataset cache (populated on first run by sklearn.datasets)
+data/
+  diabetes.csv           # committed offline copy of the raw OpenML diabetes fetch (see below)
 src/
   calibration.py       # Platt scaling + isotonic regression (PAVA), from scratch, numpy only
   metrics.py            # accuracy, log-loss, Brier score, ECE, reliability-diagram binning — from scratch
   datasets.py            # dataset loading + stratified train/calibration/test split
   plotting.py              # reliability diagram plotting (matplotlib)
   experiment.py              # orchestrates training, calibration, evaluation, saves results/
+                              # (also: run_multi_seed, the multi-seed robustness check)
 notebooks/
   01_breast_cancer.ipynb      # experiment + discussion for dataset 1
   02_diabetes.ipynb            # experiment + discussion for dataset 2
-  03_cross_dataset_summary.ipynb  # mandatory across-dataset comparison
+  03_cross_dataset_summary.ipynb  # mandatory across-dataset comparison + multi-seed robustness check
 report/                # LaTeX report (to be added later)
 results/
-  metrics/              # CSV metrics tables (per-dataset + combined + cross-dataset summary)
-  plots/                 # reliability diagrams (PNG) + cross-dataset summary bar chart
+  metrics/              # CSV metrics tables: per-dataset, combined, cross-dataset summary,
+                          # multiseed_raw.csv / multiseed_summary.csv
+  plots/                 # reliability diagrams (PNG), cross-dataset summary bar chart,
+                          # multiseed_stability.png
 ```
 
 ## Reproducing the results
@@ -40,11 +44,19 @@ pip install -r requirements.txt
 # Run the full pipeline for both datasets: trains models, calibrates, evaluates,
 # saves results/metrics/*.csv and results/plots/*.png
 python -m src.experiment
+
+# Also run the multi-seed robustness check (10 seeds x 2 datasets, ~10s):
+# saves results/metrics/multiseed_{raw,summary}.csv and results/plots/multiseed_stability.png
+python -m src.experiment --multiseed        # or: --multiseed --n-seeds 20
 ```
 
-The diabetes dataset is fetched via `sklearn.datasets.fetch_openml` and cached locally
-(`~/scikit_learn_data` by default), so **the first run requires an internet connection**; subsequent
-runs are fully offline.
+**The diabetes dataset reproduces fully offline.** `data/diabetes.csv` is a committed copy of the raw
+data from `sklearn.datasets.fetch_openml(data_id=37)` (the OpenML mirror of the UCI Pima Indians
+Diabetes dataset). `src/datasets.load_diabetes_dataset` loads from this file if it exists, and only
+falls back to `fetch_openml` (which requires internet on first use, then caches to
+`~/scikit_learn_data`) if it does not — e.g. if you delete `data/diabetes.csv` to force a fresh fetch.
+Either path produces the identical raw data, since the CSV was written directly from the first
+successful fetch. Breast Cancer is bundled with scikit-learn and is always offline.
 
 Note also that `requirements.txt` pins exact library versions. This matters: Random Forest results shift
 slightly across scikit-learn versions even with a fixed `random_state`, so reproducing the exact numbers
@@ -123,16 +135,57 @@ Two caveats to state honestly when discussing this:
 - **The magnitude depends on the clipping constant.** Log-loss is eps-clipped in `src/metrics.py`
   (otherwise it would be infinite). At `eps=1e-15` that run gives 0.620; at `eps=1e-3` the same
   predictions give 0.136. The *direction* is robust, the specific number is not — always report the eps.
-- **The effect is reproducible, but high-variance.** Across 7 random splits of the same dataset,
-  isotonic log-loss averages 0.57 ± 0.58 for Logistic Regression and 0.55 ± 0.52 for Random Forest,
-  versus 0.11 ± 0.03 and 0.12 ± 0.04 for Platt. Isotonic is consistently and substantially worse here,
-  but the standard deviation exceeds the mean of the other methods, so single-split numbers should not
-  be over-interpreted.
+- **The effect is reproducible, but high-variance, and not unique to Breast Cancer.** See the
+  "Multi-seed robustness check" section below for the formal version of this claim (10 seeds, both
+  datasets) — isotonic's log-loss is consistently higher than Platt's on *both* datasets, with a
+  standard deviation on Breast Cancer large enough that no single split's number should be
+  over-interpreted.
 
 Platt scaling's Bayesian-smoothed regression targets make it structurally immune to this failure mode
 (see the extended docstring in `src/calibration.py`). This is a genuine result — not a bug — and a good
 concrete example of the "isotonic regression needs more calibration data than Platt scaling" tradeoff
 discussed in Niculescu-Mizil & Caruana (2005).
+
+## Multi-seed robustness check
+
+Every number above comes from a single random train/calibration/test split (`SEED = 42`). With
+calibration/test sets of only ~114-154 points, that is one sample from "what would happen with a
+different split," not necessarily a stable estimate. `src.experiment.run_multi_seed` reruns the entire
+pipeline (fresh split, fresh model fit, fresh calibration fit, fresh evaluation) across `N=10` seeds
+(42-51 by default) for both datasets and reports test-metric mean ± std per (dataset, model, method).
+It is purely additive — it does not touch any single-seed output — and is invoked with:
+
+```bash
+python -m src.experiment --multiseed        # writes results/metrics/multiseed_{raw,summary}.csv
+                                              # and results/plots/multiseed_stability.png
+```
+
+Mean test log-loss ± std across 10 seeds (the metric most affected by isotonic's 0/1-collapse):
+
+| dataset | model | Uncalibrated | Platt | Isotonic |
+|---|---|---|---|---|
+| breast_cancer | LogisticRegression | 0.085 ± 0.029 | **0.086 ± 0.027** | 0.350 ± 0.241 |
+| breast_cancer | RandomForest | 0.156 ± 0.111 | **0.124 ± 0.045** | 0.409 ± 0.365 |
+| diabetes | LogisticRegression | 0.487 ± 0.038 | **0.493 ± 0.035** | 0.803 ± 0.344 |
+| diabetes | RandomForest | 0.481 ± 0.034 | **0.490 ± 0.034** | 0.818 ± 0.242 |
+
+Two conclusions follow, and they revise an earlier (single-seed) claim in `notebooks/02_diabetes.ipynb`
+that isotonic regression "has more room to pay off" on the noisier diabetes dataset — that claim did
+not survive multi-seed evidence and has been corrected there:
+
+1. **The direction is real and dataset-independent.** Isotonic's mean log-loss is higher than Platt's
+   in all four (dataset, model) combinations, not only on the well-separated Breast Cancer dataset. The
+   effect is smaller in *relative* terms on Diabetes (mean ~1.6x Platt's, vs. ~3-4x on Breast Cancer),
+   but it does not disappear.
+2. **Isotonic's variance is large enough that single-split numbers should not be over-interpreted** —
+   on Breast Cancer / Random Forest its std (0.365) is nearly as large as its own mean (0.409). Brier
+   score and ECE, being bounded metrics that cannot blow up near p=0/1, do not show this instability;
+   see `results/plots/multiseed_stability.png` (also reproduced in `notebooks/03_cross_dataset_summary.ipynb`).
+
+**Practical takeaway:** at calibration-set sizes this small (~100-150 points), Platt scaling is the
+safer default for both datasets studied here. Isotonic regression's extra flexibility is a genuine
+theoretical advantage (see its docstring), but realizing it reliably needs more calibration data than
+either dataset's split provides.
 
 ## Extra (bonus) diagnostic: Expected Calibration Error (ECE)
 
@@ -143,5 +196,7 @@ required metric, just a convenience.
 
 ## Status
 
-Code, experiments, metrics, and plots are complete and reproducible. The LaTeX report in `report/` has
-not been written yet (by design — plots and result tables above are meant to be the input to it).
+Code, experiments, metrics, and plots (including the multi-seed robustness check) are complete and
+reproducible, and the diabetes dataset now reproduces fully offline via `data/diabetes.csv`. The LaTeX
+report in `report/` has not been written yet (by design — plots and result tables above are meant to be
+the input to it).
