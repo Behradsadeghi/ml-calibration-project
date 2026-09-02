@@ -202,14 +202,14 @@ Breast Cancer & LR --- uncalibrated & 0.9649 & 0.0861 & 0.0239 & 0.0220 \\
               & LR --- isotonic     & 0.9737 & 0.6196 & 0.0230 & 0.0245 \\
               & RF --- uncalibrated & 0.9825 & 0.1177 & 0.0296 & 0.0672 \\
               & RF --- Platt        & 0.9825 & \textbf{0.0947} & \textbf{0.0193} & 0.0468 \\
-              & RF --- isotonic     & 0.9474 & 0.3640 & 0.0293 & 0.0455 \\
+              & RF --- isotonic     & 0.9737 & 0.3606 & 0.0275 & 0.0441 \\
 \midrule
 Diabetes      & LR --- uncalibrated & 0.7403 & 0.5179 & 0.1743 & 0.0797 \\
               & LR --- Platt        & 0.7468 & 0.5241 & 0.1750 & 0.0528 \\
               & LR --- isotonic     & 0.6753 & 1.5688 & 0.1896 & 0.1272 \\
               & RF --- uncalibrated & 0.7208 & 0.5156 & 0.1751 & 0.0645 \\
               & RF --- Platt        & 0.7208 & 0.5227 & 0.1761 & 0.0654 \\
-              & RF --- isotonic     & 0.7338 & 0.5193 & 0.1760 & 0.0403 \\
+              & RF --- isotonic     & 0.7338 & 0.5141 & 0.1737 & 0.0464 \\
 \bottomrule
 \end{tabular}
 \caption{Test-set metrics for the single reference split (\texttt{SEED = 42}). Lower is better for
@@ -289,7 +289,7 @@ pipeline --- fresh split, fresh model fit, fresh calibration fit, fresh evaluati
 \textbf{Dataset} & \textbf{Model} & \textbf{Uncalibrated} & \textbf{Platt} & \textbf{Isotonic} \\
 \midrule
 Breast Cancer & LR & $0.085 \pm 0.029$ & $0.086 \pm 0.027$ & $0.350 \pm 0.241$ \\
-Breast Cancer & RF & $0.156 \pm 0.111$ & $\mathbf{0.123 \pm 0.045}$ & $0.410 \pm 0.365$ \\
+Breast Cancer & RF & $0.156 \pm 0.111$ & $\mathbf{0.123 \pm 0.045}$ & $0.409 \pm 0.365$ \\
 Diabetes      & LR & $0.487 \pm 0.038$ & $0.493 \pm 0.035$ & $0.803 \pm 0.344$ \\
 Diabetes      & RF & $0.481 \pm 0.034$ & $0.490 \pm 0.034$ & $0.818 \pm 0.242$ \\
 \bottomrule
@@ -314,7 +314,7 @@ exceeds Platt's in all four dataset--model combinations, not only in the degener
 The gap is relatively smaller on Diabetes ($\approx 1.6$--$1.7\times$ Platt's, against $3$--$4\times$ on
 Breast Cancer) but it does not vanish.
 \item \textbf{Its variance is large enough that single-split numbers must not be over-read.} For Random
-Forest on Breast Cancer the standard deviation ($0.365$) is nearly as large as the mean ($0.410$). Notably,
+Forest on Breast Cancer the standard deviation ($0.365$) is nearly as large as the mean ($0.409$). Notably,
 Brier score and ECE show no such instability (Figure~\ref{fig:multi}): the effect is specifically an
 interaction between isotonic's exact-$\{0,1\}$ outputs and log-loss's unboundedness, not a general claim
 that isotonic regression is unreliable.
