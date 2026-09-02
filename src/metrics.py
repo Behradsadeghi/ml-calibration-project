@@ -1,36 +1,14 @@
 """
 Evaluation metrics for probabilistic classifiers, implemented from scratch
-with plain numpy (per the assignment's "external libraries only to ease
-computation" rule).
+with plain numpy (per the course rule that external libraries may only ease
+computation).
 
-Three metrics are required by the assignment brief:
+Required by the brief: accuracy, log-loss, Brier score. Also included as a
+bonus: Expected Calibration Error, and a signed `miscalibration_tilt` used to
+identify the *direction* of miscalibration rather than only its size.
 
-    1. Accuracy   -- fraction of correctly classified examples at a 0.5
-                      probability threshold. This only looks at the final
-                      hard decision, so it is blind to calibration quality:
-                      a model can have perfect accuracy while being wildly
-                      over- or under-confident about *how sure* it is.
-
-    2. Log-loss   -- (negative log-likelihood / cross-entropy) the proper
-                      scoring rule that logistic regression itself
-                      optimizes. It heavily penalizes confident-and-wrong
-                      predictions (as p -> 0 or 1 on the wrong side, the
-                      loss -> infinity), so it is very sensitive to bad
-                      calibration at the extremes.
-
-    3. Brier score -- mean squared error between predicted probability and
-                       the true 0/1 label. Like log-loss it is a *proper
-                       scoring rule* (you cannot game it by reporting
-                       anything other than your true belief), but it is
-                       bounded in [0, 1] and penalizes extreme mistakes
-                       less harshly than log-loss (quadratically instead of
-                       logarithmically).
-
-We also implement Expected Calibration Error (ECE), which is not required
-by the brief but is the standard scalar summary of a reliability diagram
-(it is literally the weighted-average vertical gap between the calibration
-curve and the diagonal). It is included as a bonus diagnostic to make the
-before/after discussion concrete without having to eyeball plots.
+Why the three required metrics can disagree, and what each is sensitive to,
+is discussed in report/report.tex.
 """
 
 from __future__ import annotations
@@ -40,14 +18,10 @@ import numpy as np
 def accuracy(y_true: np.ndarray, y_prob: np.ndarray, threshold: float = 0.5) -> float:
     """
     Fraction of correct predictions when probabilities are thresholded at
-    `threshold` to obtain hard class labels.
+    `threshold`.
 
-    Note: because Platt scaling and isotonic regression are monotonic
-    (rank-preserving) transforms of the raw score, they do NOT change which
-    example ranks above which -- but they CAN change accuracy, because they
-    shift *where* the 0.5 decision boundary falls relative to each example's
-    score. This is why accuracy before/after calibration is not identical
-    even though both models predict the same relative ordering.
+    Calibration is monotonic, so it never changes the ranking -- but it can
+    change accuracy, by shifting where scores fall relative to the threshold.
     """
     y_true = np.asarray(y_true)
     y_prob = np.asarray(y_prob)
@@ -57,14 +31,14 @@ def accuracy(y_true: np.ndarray, y_prob: np.ndarray, threshold: float = 0.5) -> 
 
 def log_loss(y_true: np.ndarray, y_prob: np.ndarray, eps: float = 1e-15) -> float:
     """
-    Binary cross-entropy:
+    Binary cross-entropy; lower is better.
 
         LL = -(1/n) * sum_i [ y_i * log(p_i) + (1 - y_i) * log(1 - p_i) ]
 
-    Lower is better. Probabilities are clipped to [eps, 1-eps] first,
-    because a single confidently-wrong prediction (p=0 when y=1, or vice
-    versa) would otherwise produce log(0) = -infinity and blow up the whole
-    metric -- clipping caps the penalty at a large-but-finite value instead.
+    Probabilities are clipped to [eps, 1-eps] because a confidently-wrong
+    prediction would otherwise give log(0) = -inf. The clip caps the penalty
+    at a large finite value, so reported log-losses depend on `eps` whenever
+    predictions reach the extremes.
     """
     y_true = np.asarray(y_true, dtype=np.float64)
     p = np.clip(np.asarray(y_prob, dtype=np.float64), eps, 1 - eps)
@@ -73,13 +47,12 @@ def log_loss(y_true: np.ndarray, y_prob: np.ndarray, eps: float = 1e-15) -> floa
 
 def brier_score(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     """
-    Mean squared error between predicted probability and true label:
+    Mean squared error between predicted probability and true label; bounded
+    in [0, 1], lower is better.
 
         BS = (1/n) * sum_i (p_i - y_i)^2
 
-    Bounded in [0, 1]; lower is better. A model that always predicts the
-    base rate gets BS = base_rate * (1 - base_rate), a useful reference
-    point ("climatology" baseline in the forecasting literature).
+    A model always predicting the base rate scores base_rate * (1 - base_rate).
     """
     y_true = np.asarray(y_true, dtype=np.float64)
     p = np.asarray(y_prob, dtype=np.float64)
@@ -88,10 +61,9 @@ def brier_score(y_true: np.ndarray, y_prob: np.ndarray) -> float:
 
 def reliability_bins(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10):
     """
-    Bin predictions into `n_bins` equal-width bins over [0, 1] and compute,
-    per bin: the mean predicted probability, the empirical fraction of
-    positives, and the number of points. This is the raw data behind a
-    reliability diagram (see src/plotting.py) and behind ECE below.
+    Bin predictions into `n_bins` equal-width bins over [0, 1]; return per
+    bin the mean predicted probability, the empirical positive rate, and the
+    count. This is the data behind a reliability diagram and behind ECE.
 
     Returns
     -------
@@ -127,10 +99,8 @@ def expected_calibration_error(y_true: np.ndarray, y_prob: np.ndarray, n_bins: i
     """
     ECE = sum_b (n_b / n) * | mean_pred(b) - frac_pos(b) |
 
-    The sample-weighted average absolute gap between the reliability curve
-    and the diagonal (perfect calibration). A single number summarizing
-    "how miscalibrated is this model on average" -- 0 is perfect, larger is
-    worse. Bonus diagnostic, not one of the three required metrics.
+    Sample-weighted average absolute gap between the reliability curve and
+    the diagonal. 0 is perfect. Bonus diagnostic, not a required metric.
     """
     bin_mean_pred, bin_frac_pos, bin_counts, _ = reliability_bins(y_true, y_prob, n_bins)
     n = np.sum(bin_counts)
@@ -142,35 +112,21 @@ def expected_calibration_error(y_true: np.ndarray, y_prob: np.ndarray, n_bins: i
 
 def miscalibration_tilt(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
     """
-    Signed measure of the *direction* of miscalibration.
+    Signed measure of the *direction* of miscalibration:
 
-        tilt = (weighted mean of (pred - obs) over the lower half of the
-                probability range)
-             - (weighted mean of (pred - obs) over the upper half)
+        tilt = weighted mean (pred - obs) over the lower half of [0, 1]
+             - weighted mean (pred - obs) over the upper half
 
-    Positive  => UNDER-confident: the model over-states probabilities for
-                 examples it thinks are unlikely and under-states them for
-                 examples it thinks are likely, i.e. its predictions are
-                 squeezed toward 0.5 (the reliability curve is flatter than
-                 the diagonal). This is the pattern Niculescu-Mizil &
-                 Caruana attribute to vote-averaging in tree ensembles.
-    Negative  => OVER-confident: predictions are pushed away from 0.5, the
-                 reliability curve is steeper than the diagonal.
+    Positive => under-confident (predictions squeezed toward 0.5, reliability
+    curve flatter than the diagonal). Negative => over-confident.
 
-    Why not just average (pred - obs) over all bins?
-    --------------------------------------------------
-    Because that quantity is near zero for *both* failure modes: the
-    positive gaps in the low bins and the negative gaps in the high bins
-    cancel out. Verified on synthetic data where the true direction is known
-    by construction, a plain weighted-average gap reads ~0.001 for a
-    strongly under-confident model and ~0.001 for a strongly over-confident
-    one, while this tilt statistic cleanly separates them. Direction of
-    miscalibration is about the *slope* of the reliability curve relative to
-    the diagonal, not its average offset.
+    A plain average gap over all bins cannot distinguish the two, since the
+    positive gaps at low probabilities cancel the negative ones at high
+    probabilities; on synthetic data with a known direction it reads ~0.001
+    either way, while this statistic separates them cleanly.
 
-    Caveat: like every reliability-diagram statistic, this is noisy on small
-    test sets. Report it across several random splits (see
-    `src.experiment.run_multi_seed`) rather than from a single split.
+    Noisy on small test sets -- report it across several splits (see
+    `src.experiment.run_multi_seed`), not from one.
     """
     bin_mean_pred, bin_frac_pos, bin_counts, _ = reliability_bins(y_true, y_prob, n_bins)
     idx = np.arange(n_bins)

@@ -1,19 +1,14 @@
 """
 Reliability-diagram plotting utilities (matplotlib only).
 
-A reliability diagram plots, for each bin of predicted probability, the
-empirical fraction of positives observed in that bin against the mean
-predicted probability in that bin. A perfectly calibrated model lies on the
-y=x diagonal: "among all the times I said 80% confident, I was right about
-80% of the time." Points ABOVE the diagonal mean the model is
-under-confident in that bin (true frequency higher than predicted); points
-BELOW the diagonal mean over-confident (true frequency lower than
-predicted).
+A reliability diagram plots, per bin of predicted probability, the empirical
+fraction of positives against the mean predicted probability. A perfectly
+calibrated model lies on the y=x diagonal; points above it are
+under-confident in that bin, points below it over-confident.
 
-We follow Niculescu-Mizil & Caruana (2005) in pairing each curve with a
-histogram of predicted probabilities underneath, since a reliability curve
-computed from very few points in a bin is noisy and can be misleading on
-its own -- the histogram shows how much to trust each part of the curve.
+Following Niculescu-Mizil & Caruana (2005), each curve is paired with a
+histogram of predicted probabilities, since a bin holding few points gives a
+noisy and potentially misleading curve.
 """
 
 from __future__ import annotations
@@ -24,9 +19,8 @@ from .metrics import reliability_bins
 
 
 def plot_reliability_curve(ax, y_true, y_prob, n_bins=10, label=None, marker="o"):
-    """Draw a single reliability curve (predicted vs. observed frequency)
-    onto an existing matplotlib Axes, plus the y=x diagonal if not already
-    drawn. Returns the Line2D so callers can reuse its color."""
+    """Draw a single reliability curve onto an existing Axes. Returns the
+    Line2D so callers can reuse its colour."""
     bin_mean_pred, bin_frac_pos, bin_counts, _ = reliability_bins(y_true, y_prob, n_bins=n_bins)
     valid = bin_counts > 0
     line, = ax.plot(
@@ -44,18 +38,15 @@ def plot_reliability_comparison(
     y_true, prob_dict, n_bins=10, title="", save_path=None,
 ):
     """
-    Overlay several reliability curves (e.g. {"Uncalibrated": p0, "Platt":
-    p1, "Isotonic": p2}) on one set of axes, with a shared histogram of
-    predicted-probability counts underneath (one bar group per curve).
+    Overlay several reliability curves on one set of axes, with a shared
+    histogram of predicted-probability counts underneath.
 
     Parameters
     ----------
-    y_true : (n,) true binary labels (shared across all curves -- same test
-             set, different probability estimates).
-    prob_dict : dict[str, (n,) array] mapping a method name to its
-                predicted probabilities on that same test set.
+    y_true : (n,) true binary labels, shared across all curves.
+    prob_dict : dict[str, (n,) array] mapping method name to predictions.
     n_bins : number of equal-width bins in [0, 1].
-    save_path : if given, save the figure to this path (PNG, tight bbox).
+    save_path : if given, save the figure there (PNG, tight bbox).
     """
     fig, (ax_curve, ax_hist) = plt.subplots(
         2, 1, figsize=(6, 7), gridspec_kw={"height_ratios": [3, 1]}, sharex=True
@@ -99,22 +90,16 @@ _METHOD_COLORS = {"Uncalibrated": "#1f77b4", "Platt": "#ff7f0e", "Isotonic": "#2
 
 def plot_multiseed_stability(summary_df, metrics=("log_loss", "brier_score", "ece"), save_path=None):
     """
-    Grid of bar charts (rows = metrics, columns = dataset x model
-    combinations) showing, per method, the mean test-set metric across
-    many random train/calibration/test splits with a +/- 1 std error bar.
+    Grid of bar charts (rows = metrics, columns = dataset x model) showing
+    the mean test-set metric per method across many random splits, with a
+    +/- 1 std error bar.
 
-    `summary_df` is the aggregated output of
-    `src.experiment.run_multi_seed` (one row per dataset x model x method,
-    with `{metric}_mean` / `{metric}_std` columns).
+    `summary_df` is the aggregated output of `src.experiment.run_multi_seed`
+    (one row per dataset x model x method, with `{metric}_mean` /
+    `{metric}_std` columns).
 
-    Why this plot matters
-    -----------------------
-    A single reliability diagram or a single metrics table (as produced by
-    `src.experiment.main`) is one sample from "what would happen with a
-    different random split." A tall bar is a real effect; a tall bar with
-    an error bar comparable to its own height is mostly noise from one
-    particular split, and should not be over-interpreted (e.g. compared
-    method-vs-method) without seeing the spread shown here.
+    An error bar comparable in size to its own bar means the effect is mostly
+    split-to-split noise and should not be read as a method difference.
     """
     combos = list(
         summary_df[["dataset", "model"]].drop_duplicates().itertuples(index=False, name=None)

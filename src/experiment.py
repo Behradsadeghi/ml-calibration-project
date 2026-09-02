@@ -1,25 +1,16 @@
 """
-End-to-end experiment pipeline for the calibration study.
+End-to-end experiment pipeline.
 
-For each dataset, this module:
-  1. Loads the data and splits it into train / calibration / test (see
-     `src.datasets.split_train_calib_test` for why a *separate* calibration
-     set is required).
-  2. Trains Logistic Regression and Random Forest on the training set
-     (off-the-shelf sklearn models, as explicitly permitted by the
-     assignment for these two).
-  3. Reads off each model's raw (uncalibrated) predicted probabilities.
-  4. Fits our from-scratch Platt scaling and isotonic regression (PAVA) on
-     the calibration set only, then applies them to the test set.
-  5. Evaluates accuracy / log-loss / Brier score / ECE on the test set for
-     the uncalibrated model and both calibrated versions.
-  6. Saves a metrics table (CSV) and a reliability-diagram figure (PNG,
-     uncalibrated vs. Platt vs. isotonic overlaid) per dataset x model.
+Per dataset: split into train / calibration / test, train Logistic Regression
+and Random Forest on the training split, fit the from-scratch calibrators on
+the calibration split only, then evaluate accuracy / log-loss / Brier / ECE /
+tilt on the test split for the uncalibrated model and both calibrated
+versions. Saves a metrics CSV and a reliability-diagram figure per
+dataset x model, plus the across-dataset comparison table required by the
+brief.
 
-After both datasets have been run, `main()` also builds the mandatory
-across-dataset comparison table (results/metrics/summary_comparison.csv).
-
-Run with:  python -m src.experiment   (from the repo root, inside the venv)
+    python -m src.experiment              # single-seed run (SEED = 42)
+    python -m src.experiment --multiseed  # 10-seed robustness check
 """
 
 from __future__ import annotations
@@ -46,31 +37,16 @@ METRICS_DIR = RESULTS_DIR / "metrics"
 
 def train_base_models(X_train: np.ndarray, y_train: np.ndarray, seed: int = SEED) -> dict:
     """
-    Train the two off-the-shelf base classifiers. Both are used purely as
-    "sources of imperfectly-calibrated probabilities" for the calibration
-    study -- their own hyperparameters are not the object of study, so we
-    use reasonable defaults rather than tuning them.
+    Train the two off-the-shelf base classifiers. They are used purely as
+    sources of imperfectly calibrated probabilities, so their
+    hyperparameters are not tuned.
 
-    Logistic Regression is expected to be reasonably well-calibrated out of
-    the box, because it is fit by maximizing log-likelihood, i.e. it is
-    already directly optimizing (a version of) the log-loss metric we use
-    to evaluate calibration.
-
-    Random Forest averages the (0/1-ish) votes of many de-correlated trees.
-    Niculescu-Mizil & Caruana (2005) show this averaging systematically
-    pushes predicted probabilities toward 0.5 -- individual trees are
-    overconfident, but averaging many of them washes out the extremes, so
-    the ensemble ends up *under-confident*. n_estimators=300 gives a stable
-    ensemble while keeping runtime small.
-
-    How well this holds here (measured, not assumed): see the "Which model
-    is more miscalibrated, and in which direction?" section of the README.
-    Briefly -- on Breast Cancer the prediction is borne out, and Random
-    Forest is roughly twice as under-confident as Logistic Regression; on
-    Diabetes the direction is not stable across random splits, so no claim
-    is made there. Note also that the under-confidence shows up in the
-    *middle* of the probability range, not at the extremes: the outermost
-    bins, which hold most of the test mass, are close to calibrated.
+    Logistic Regression maximises log-likelihood, so it optimises a version
+    of the very loss used to evaluate calibration and should start out
+    fairly well calibrated. Random Forest averages many trees' votes, which
+    Niculescu-Mizil & Caruana show pushes probabilities toward 0.5 --
+    under-confidence. How far that holds here is measured in
+    report/report.tex rather than assumed.
     """
     logreg = LogisticRegression(max_iter=2000, random_state=seed)
     logreg.fit(X_train, y_train)
@@ -90,16 +66,13 @@ def run_dataset_experiment(
     verbose: bool = True,
 ) -> pd.DataFrame:
     """
-    Run the full train/calibrate/evaluate pipeline once, for one dataset,
-    for one particular train/calibration/test split (determined by `seed`).
+    Run the full train/calibrate/evaluate pipeline once for one dataset and
+    one split (determined by `seed`).
 
     `save_plots` / `save_csv` / `verbose` default to True so the single-seed
-    call from `main()` behaves exactly as before. `run_multi_seed` below
-    calls this with all three set to False: with 10 seeds x 2 datasets x 2
-    models, generating and saving a reliability-diagram figure for every
-    single run would produce 40 extra plots (and leave 40 open matplotlib
-    figures) we do not want -- only the seed-42 headline run's plots should
-    land in results/plots/.
+    call from `main()` behaves as before. `run_multi_seed` passes False for
+    all three: 10 seeds x 2 datasets x 2 models would otherwise write 40
+    extra figures and leave them open in matplotlib.
     """
     X, y, name, description = load_fn()
     splits = split_train_calib_test(X, y, seed=seed)
@@ -107,12 +80,9 @@ def run_dataset_experiment(
     X_calib, y_calib = splits["X_calib"], splits["y_calib"]
     X_test, y_test = splits["X_test"], splits["y_test"]
 
-    # Standardize features (fit on train only). This matters for Logistic
-    # Regression's optimizer (features on very different scales, e.g. the
-    # breast-cancer dataset, slow/prevent convergence) and is a no-op for
-    # Random Forest's predictions (tree splits are invariant to monotonic
-    # per-feature transforms like standardization), so it is safe to apply
-    # uniformly to both models.
+    # Standardize features (fit on train only): needed for Logistic
+    # Regression's optimizer when features are on very different scales, and
+    # a no-op for Random Forest, whose splits are invariant to it.
     scaler = StandardScaler().fit(X_train)
     X_train = scaler.transform(X_train)
     X_calib = scaler.transform(X_calib)
@@ -130,11 +100,8 @@ def run_dataset_experiment(
 
     rows = []
     for model_name, model in models.items():
-        # Raw, uncalibrated probability estimates from the base model.
-        # These are the "scores" fed to both calibrators: Platt scaling
-        # fits a sigmoid on top of them, isotonic regression fits a
-        # monotonic step function on top of them. Fitting happens ONLY on
-        # the calibration split.
+        # Raw scores fed to both calibrators, which are fit on the
+        # calibration split only.
         p_calib_raw = model.predict_proba(X_calib)[:, 1]
         p_test_raw = model.predict_proba(X_test)[:, 1]
 
@@ -174,12 +141,10 @@ def run_dataset_experiment(
 
 def build_cross_dataset_summary(df_all: pd.DataFrame) -> pd.DataFrame:
     """
-    The assignment requires a comparison ACROSS the two datasets. This
-    builds one table with, for every (dataset, model, method) row, the
-    raw metrics plus the change in log-loss / Brier / ECE relative to that
-    same dataset+model's uncalibrated baseline -- so improvements are
-    directly comparable side by side across datasets even though the two
-    datasets have very different absolute difficulty.
+    Build the required across-dataset comparison: every (dataset, model,
+    method) row with its raw metrics plus the change relative to that same
+    dataset+model's uncalibrated baseline, so improvements are comparable
+    across two datasets of very different difficulty.
     """
     base = df_all[df_all.method == "Uncalibrated"].set_index(["dataset", "model"])
     rows = []
@@ -205,30 +170,17 @@ DATASET_LOADERS = {
 
 def run_multi_seed(n_seeds: int = 10, base_seed: int = SEED, n_bins: int = 10):
     """
-    Repeat the full train/calibrate/evaluate pipeline across `n_seeds`
-    different random train/calibration/test splits (seeds
-    base_seed, base_seed+1, ..., base_seed+n_seeds-1), for both datasets,
-    and aggregate test metrics as mean +/- std per (dataset, model, method).
+    Repeat the pipeline across `n_seeds` random splits (base_seed ..
+    base_seed+n_seeds-1) for both datasets, aggregating test metrics as
+    mean +/- std per (dataset, model, method).
 
-    Why this matters
-    ------------------
-    Every number reported by `main()` (and every reliability diagram in
-    results/plots/) comes from a *single* random 60/20/20 split
-    (SEED=42). With calibration/test sets of only ~100-150 points, sampling
-    noise alone can move log-loss or Brier score by a non-trivial amount --
-    the isotonic-regression 0/1-collapse discussed in
-    `src/calibration.py` is itself a split-dependent effect. Reporting mean
-    +/- std across many seeds is the minimum needed to tell whether an
-    apparent difference between two calibration methods is a real effect or
-    noise from one particular split.
+    Every number from `main()` comes from one 60/20/20 split with only
+    ~100-150 calibration and test points, so sampling noise alone can move
+    log-loss noticeably. This is the minimum needed to distinguish a real
+    difference between calibration methods from split-to-split variation.
 
-    This is purely additive: it does not touch the single-seed outputs
-    (results/metrics/{dataset}_metrics.csv, results/metrics/all_results.csv,
-    results/plots/{dataset}_{model}_reliability.png). It saves:
-      - results/metrics/multiseed_raw.csv      (one row per seed x dataset
-                                                  x model x method)
-      - results/metrics/multiseed_summary.csv  (aggregated mean/std)
-      - results/plots/multiseed_stability.png  (mean +/- std bar chart)
+    Purely additive -- single-seed outputs are untouched. Writes
+    multiseed_raw.csv, multiseed_summary.csv, and multiseed_stability.png.
     """
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
