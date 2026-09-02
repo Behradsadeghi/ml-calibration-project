@@ -22,7 +22,9 @@ notebooks/
   01_breast_cancer.ipynb      # experiment + discussion for dataset 1
   02_diabetes.ipynb            # experiment + discussion for dataset 2
   03_cross_dataset_summary.ipynb  # mandatory across-dataset comparison + multi-seed robustness check
-report/                # LaTeX report (to be added later)
+report/                # LaTeX report
+  report.tex             # source (figures referenced from ../results/plots/)
+  report.pdf              # compiled PDF: pdflatex report.tex (twice, to resolve references)
 results/
   metrics/              # CSV metrics tables: per-dataset, combined, cross-dataset summary,
                           # multiseed_raw.csv / multiseed_summary.csv
@@ -284,7 +286,7 @@ required metric, just a convenience.
 
 ## Status
 
-Code, experiments, metrics, and plots (including the multi-seed robustness check) are complete and
-reproducible, and the diabetes dataset now reproduces fully offline via `data/diabetes.csv`. The LaTeX
-report in `report/` has not been written yet (by design — plots and result tables above are meant to be
-the input to it).
+Code, experiments, metrics, plots (including the multi-seed robustness check), and the LaTeX report are
+complete and reproducible, and the diabetes dataset reproduces fully offline via `data/diabetes.csv`.
+The report is in `report/` (`report.tex` plus the compiled `report.pdf`); it draws its figures directly
+from `results/plots/`, so re-running the pipeline and recompiling keeps the two in sync.

@@ -291,7 +291,7 @@ pipeline --- fresh split, fresh model fit, fresh calibration fit, fresh evaluati
 Breast Cancer & LR & $0.085 \pm 0.029$ & $0.086 \pm 0.027$ & $0.350 \pm 0.241$ \\
 Breast Cancer & RF & $0.156 \pm 0.111$ & $\mathbf{0.123 \pm 0.045}$ & $0.410 \pm 0.365$ \\
 Diabetes      & LR & $0.487 \pm 0.038$ & $0.493 \pm 0.035$ & $0.803 \pm 0.344$ \\
-Diabetes      & RF & $0.481 \pm 0.034$ & $0.490 \pm 0.034$ & $0.800 \pm 0.238$ \\
+Diabetes      & RF & $0.481 \pm 0.034$ & $0.490 \pm 0.034$ & $0.818 \pm 0.242$ \\
 \bottomrule
 \end{tabular}
 \caption{Mean test log-loss $\pm$ standard deviation across ten random splits.}
@@ -311,8 +311,8 @@ Two conclusions follow, and one earlier conclusion is withdrawn.
 \begin{enumerate}
 \item \textbf{The isotonic penalty is real and dataset-independent.} Isotonic regression's mean log-loss
 exceeds Platt's in all four dataset--model combinations, not only in the degenerate Breast Cancer case.
-The gap is relatively smaller on Diabetes ($\approx 1.6\times$ Platt's, against $3$--$4\times$ on Breast
-Cancer) but it does not vanish.
+The gap is relatively smaller on Diabetes ($\approx 1.6$--$1.7\times$ Platt's, against $3$--$4\times$ on
+Breast Cancer) but it does not vanish.
 \item \textbf{Its variance is large enough that single-split numbers must not be over-read.} For Random
 Forest on Breast Cancer the standard deviation ($0.365$) is nearly as large as the mean ($0.410$). Notably,
 Brier score and ECE show no such instability (Figure~\ref{fig:multi}): the effect is specifically an
