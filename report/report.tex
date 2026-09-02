@@ -129,8 +129,12 @@ simpler choice was kept.
 
 Platt scaling fits a two-parameter sigmoid on top of the raw score $f$:
 \begin{equation}
-P(y=1 \mid f) = \frac{1}{1 + \exp(Af + B)} .
+P(y=1 \mid f) = \frac{1}{1 + \exp\!\big(-(Af + B)\big)} .
 \end{equation}
+Platt's original paper~\cite{platt1999} writes this as $1/(1+\exp(Af+B))$, in which a well-behaved fit
+has $A$ negative; I use the standard logistic parameterisation above, in which $A$ is positive (typically
+$A \approx +5$ in these experiments). The two are equivalent under $A \to -A$, $B \to -B$ and give
+identical probabilities.
 The parameters $(A,B)$ are chosen by maximum likelihood, which is convex, and are found with a
 hand-written Newton's method (closed-form inverse of the $2\times2$ Hessian). Only two parameters are
 fitted, which makes the method extremely data-efficient but restricts it to monotonic, sigmoid-shaped

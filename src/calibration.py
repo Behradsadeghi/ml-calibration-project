@@ -28,9 +28,18 @@ import numpy as np
 # ---------------------------------------------------------------------------
 class PlattScaling:
     """
-    Fits a sigmoid  P(y=1 | f) = 1 / (1 + exp(A*f + B))  on top of a
+    Fits a sigmoid  P(y=1 | f) = 1 / (1 + exp(-(A*f + B)))  on top of a
     classifier's raw score `f` (e.g. a logistic-regression decision-function
     value, or a random forest's predicted probability).
+
+    A note on sign convention: Platt's original 1999 paper writes this as
+    1 / (1 + exp(A*f + B)), in which a well-behaved fit has A *negative*.
+    This implementation uses the standard logistic parameterisation with the
+    negation inside, so a well-behaved fit has A *positive* (typically
+    A ~ +5 here). The two forms are equivalent under A -> -A, B -> -B and
+    give identical probabilities; only the reported sign of the parameters
+    differs. The standard form is used here because it matches the
+    `_sigmoid` helper below and avoids a sign flip in the Newton update.
 
     Why a sigmoid at all?
     ----------------------
