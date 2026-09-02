@@ -208,8 +208,12 @@ worth stating plainly. Using the 10-seed means, comparing Platt scaling against 
 | diabetes | RandomForest | ECE | 0.0724 | 0.0850 | worse |
 
 So Platt scaling improves ECE in 3 of 4 cases, Brier score in 2 of 4, and log-loss in only 1 of 4. The
-single clear win — Random Forest on Breast Cancer — is also the case with the most miscalibration to
-fix in the first place (uncalibrated ECE 0.0545, the highest of the four).
+single clear win — Random Forest on Breast Cancer — is *not* the case with the largest raw miscalibration
+(Diabetes has higher uncalibrated ECE for both models). It is the case whose miscalibration is most
+**systematic**: the largest tilt with a stable sign across splits (see the tilt table below). Platt scaling
+has two parameters and can only undo a distortion with a consistent sigmoid shape — it cannot repair
+miscalibration that has no stable direction. On Diabetes the tilt's sign flips from split to split, so
+there is more error to fix but no systematic shape to fix it with.
 
 **Why so little to fix.** This is the expected result for these two model classes, not a failure of the
 implementation:

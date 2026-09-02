@@ -289,7 +289,7 @@ pipeline --- fresh split, fresh model fit, fresh calibration fit, fresh evaluati
 \textbf{Dataset} & \textbf{Model} & \textbf{Uncalibrated} & \textbf{Platt} & \textbf{Isotonic} \\
 \midrule
 Breast Cancer & LR & $0.085 \pm 0.029$ & $0.086 \pm 0.027$ & $0.350 \pm 0.241$ \\
-Breast Cancer & RF & $0.156 \pm 0.111$ & $\mathbf{0.124 \pm 0.045}$ & $0.410 \pm 0.365$ \\
+Breast Cancer & RF & $0.156 \pm 0.111$ & $\mathbf{0.123 \pm 0.045}$ & $0.410 \pm 0.365$ \\
 Diabetes      & LR & $0.487 \pm 0.038$ & $0.493 \pm 0.035$ & $0.803 \pm 0.344$ \\
 Diabetes      & RF & $0.481 \pm 0.034$ & $0.490 \pm 0.034$ & $0.800 \pm 0.238$ \\
 \bottomrule
@@ -359,7 +359,7 @@ On Breast Cancer the prediction of~\cite{nm2005} holds: both models are under-co
 Forest is roughly twice as under-confident as Logistic Regression. This is consistent with the mechanism
 they describe --- averaging many de-correlated trees washes out extreme votes and pulls the ensemble's
 probabilities toward the centre --- a mechanism that applies to the forest and not to the linear model.
-It is also, tellingly, the one case where Platt scaling clearly helps (log-loss $0.156 \to 0.124$), which
+It is also, tellingly, the one case where Platt scaling clearly helps (log-loss $0.156 \to 0.123$), which
 is what one expects when there is a genuine systematic sigmoid-shaped distortion available to undo.
 
 On Diabetes the sign flips from split to split for both models, so no honest claim about direction can be
@@ -388,8 +388,13 @@ version of the very loss used to evaluate it. On a well-specified problem it is 
 calibrated, so post-hoc correction has almost nothing to correct and mostly adds estimation noise from a
 calibration set of only $110$--$150$ points.
 \item Random Forest's vote-averaging \emph{is} a real, correctable distortion, and Platt scaling does
-correct it --- visibly so on Breast Cancer, which is the single combination showing the largest initial
-miscalibration (ECE $0.0545$, the highest of the four).
+correct it --- visibly so on Breast Cancer. That combination is not the one with the largest raw
+miscalibration (Diabetes has higher ECE for both models), but it is the one whose miscalibration is most
+\emph{systematic}: it has the largest tilt with a stable sign across splits (Table~\ref{tab:tilt}). This
+distinction matters. Platt scaling has two parameters and can only undo a distortion with a consistent
+sigmoid shape; it cannot repair miscalibration that has no stable direction. On Diabetes the tilt's sign
+flips from split to split, so there is more error to fix but no systematic shape to fix it with --- which
+is precisely why the larger ECE there does not translate into a larger gain from calibration.
 \end{itemize}
 
 The deeper limitation is the choice of model families. The dramatic gains in~\cite{nm2005} come from
